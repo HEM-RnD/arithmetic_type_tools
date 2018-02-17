@@ -2,11 +2,35 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
 
 namespace arithmetic_type_tools {
+    template <typename... T> class fit_all;
+
+    /** fit_all_t is a std::common_type_t replacement that does combine signed and unsigned properly. */
+    template <typename... T>
+    using fit_all_t = typename fit_all<T...>::type;
+
+    template <typename... Ts>
+    static inline auto min(const Ts&... vals) {
+        using T = fit_all_t<Ts...>;
+        // using T = std::common_type_t<Ts...>;
+        T temp = std::numeric_limits<T>::max();
+        ((temp = static_cast<T>(temp) < static_cast<T>(vals) ? static_cast<T>(temp) : static_cast<T>(vals)), ...);
+        return temp;
+    }
+
+    template <typename... Ts>
+    static inline auto max(const Ts&... vals) {
+        using T = fit_all_t<Ts...>;
+        T temp = std::numeric_limits<T>::lowest();
+        ((temp = static_cast<T>(vals) > static_cast<T>(temp) ? static_cast<T>(vals) : static_cast<T>(temp)), ...);
+        return temp;
+    }
+
     namespace {
         // Why isn't std::max variadic?
         template <typename T>
@@ -136,9 +160,4 @@ namespace arithmetic_type_tools {
                                                                               unsigned_by_size_t<lu>,
                                                                               void>>>;
     };
-
-    /** fit_all_t is a std::common_type_t replacement that does combine signed and unsigned properly. */
-    template <typename... T>
-    using fit_all_t = typename fit_all<T...>::type;
-
 } // namespace arithmetic_type_tools
