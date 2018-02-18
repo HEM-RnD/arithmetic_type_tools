@@ -5,78 +5,12 @@
 #include <limits>
 #include <type_traits>
 #include <utility>
+#include <algorithm>
 
 
+#undef min
+#undef max
 namespace arithmetic_type_tools {
-    template <typename... T> class fit_all;
-
-    /** fit_all_t is a std::common_type_t replacement that does combine signed and unsigned properly. */
-    template <typename... T>
-    using fit_all_t = typename fit_all<T...>::type;
-
-    template <typename... Ts>
-    static inline auto min(const Ts&... vals) {
-        using T = fit_all_t<Ts...>;
-        // using T = std::common_type_t<Ts...>;
-        T temp = std::numeric_limits<T>::max();
-        ((temp = static_cast<T>(temp) < static_cast<T>(vals) ? static_cast<T>(temp) : static_cast<T>(vals)), ...);
-        return temp;
-    }
-
-    template <typename... Ts>
-    static inline auto max(const Ts&... vals) {
-        using T = fit_all_t<Ts...>;
-        T temp = std::numeric_limits<T>::lowest();
-        ((temp = static_cast<T>(vals) > static_cast<T>(temp) ? static_cast<T>(vals) : static_cast<T>(temp)), ...);
-        return temp;
-    }
-
-    namespace {
-        // Why isn't std::max variadic?
-        template <typename T>
-        constexpr T&& vmax(T&& val) {
-            return std::forward<T>(val);
-        }
-
-        template <typename T, typename U, typename... V>
-        constexpr decltype(auto) vmax(T&& val1, U&& val2, V&&... rest) {
-            return (val1 >= val2)
-                        ? vmax(val1, std::forward<V>(rest)...)
-                        : vmax(val2, std::forward<V>(rest)...);
-        }
-
-    } // namespace
-
-    /** Store the size of the largest signed type in a range of types in `value`. */
-    template <typename... T>
-    struct largest_signed {
-        static constexpr size_t value = vmax((std::is_signed_v<T> ? sizeof(T) : 0)...);
-    };
-
-    /** Return the size of the largest signed type in a range of types. */
-    template <typename... T>
-    constexpr decltype(auto) largest_signed_v = largest_signed<T...>::value;
-
-    /** Store the size of the largest unsigned type in a range of types in `value`. */
-    template <typename... T>
-    struct largest_unsigned {
-        static constexpr size_t value = vmax((std::is_unsigned_v<T> ? sizeof(T) : 0)...);
-    };
-
-    /** Return the size of the largest signed type in a range of types. */
-    template <typename... T>
-    constexpr decltype(auto) largest_unsigned_v = largest_unsigned<T...>::value;
-
-    /** Store the size of the largest floating point type in a range of types in `value`. */
-    template <typename... T>
-    struct largest_float {
-        static constexpr size_t value = vmax((std::is_floating_point_v<T> ? sizeof(T) : 0)...);
-    };
-
-    /** Return the size of the largest floating point type in a range of types. */
-    template <typename... T>
-    constexpr decltype(auto) largest_float_v = largest_float<T...>::value;
-
     /**@{ Allow selecting types based on their size */
     template <size_t S> struct signed_by_size { using type = void; };
     template <> struct signed_by_size<1> { using type = int8_t; };
@@ -122,6 +56,94 @@ namespace arithmetic_type_tools {
     using float_by_size_t = typename float_by_size<S>::type;
     /** @} */
 
+    // Yes, the order isn't pretty, but it solves the chicken-egg issue caused by the broken `std::common_type`
+    /**
+     * Variadic `min` implementation for safely mixing unsigned, signed and floating point arguments
+     * @returns Lowest value of type `fit_all_t<T...>`
+     */
+    template <typename... Ts,
+              typename T = std::conditional_t<(std::is_signed_v<Ts> || ...) && (std::is_unsigned_v<Ts> || ...),
+                                              signed_by_size_t<sizeof(std::common_type_t<Ts...>) *
+                                                               ((sizeof(std::common_type_t<Ts...>) > std::max(
+                                                                    { (std::is_unsigned_v<Ts> ? sizeof(Ts) : 0)... }
+                                                                    )) ? 1 : 2)>,
+                                              std::common_type_t<Ts...>>>
+    constexpr T min(const Ts&... vals) {
+        T temp = std::numeric_limits<T>::max();
+        ((temp = static_cast<T>(temp) < static_cast<T>(vals) ? static_cast<T>(temp) : static_cast<T>(vals)), ...);
+        return temp;
+    }
+
+    /**
+     * Variadic `max` implementation for safely mixing unsigned, signed and floating point arguments
+     * @returns Highest value of type `fit_all_t<T...>`
+     */
+    template <typename... Ts,
+              typename T = std::conditional_t<(std::is_signed_v<Ts> || ...) && (std::is_unsigned_v<Ts> || ...),
+                                              signed_by_size_t<sizeof(std::common_type_t<Ts...>) *
+                                                               ((sizeof(std::common_type_t<Ts...>) > std::max(
+                                                                    { (std::is_unsigned_v<Ts> ? sizeof(Ts) : 0)... }
+                                                                    )) ? 1 : 2)>,
+                                              std::common_type_t<Ts...>>>
+    constexpr T max(const Ts... vals) {
+        T temp = std::numeric_limits<T>::lowest();
+        ((temp = static_cast<T>(vals) > static_cast<T>(temp) ? static_cast<T>(vals) : static_cast<T>(temp)), ...);
+        return temp;
+    }
+
+    /**
+     * `clamp` implementation for safely mixing unsigned, signed and floating point arguments
+     * @returns Value of type `fit_all_t<T...>` clamped to `low...high`
+     */
+    template <typename T, typename U, typename V,
+              typename C = std::conditional_t<(  std::is_signed_v<T> ||   std::is_signed_v<U> ||   std::is_signed_v<V>) &&
+                                              (std::is_unsigned_v<T> || std::is_unsigned_v<U> || std::is_unsigned_v<V>),
+                                              signed_by_size_t<sizeof(std::common_type_t<T, U, V>) *
+                                                               ((sizeof(std::common_type_t<T, U, V>) > std::max(
+                                                                    {(std::is_unsigned_v<T> ? sizeof(T) : 0),
+                                                                     (std::is_unsigned_v<U> ? sizeof(U) : 0),
+                                                                     (std::is_unsigned_v<V> ? sizeof(V) : 0)}
+                                                                    )
+                                                                ) ? 1 : 2)>,
+                                              std::common_type_t<T, U, V>>>
+    constexpr auto clamp(const T& low, const U& val, const V& high) {
+        return static_cast<C>(low) < static_cast<C>(val)
+                    ? (static_cast<C>(val) < static_cast<C>(high)
+                            ? static_cast<C>(val)
+                            : static_cast<C>(high))
+                    : static_cast<C>(low);
+    }
+
+    /** Store the size of the largest signed type in a range of types in `value`. */
+    template <typename... T>
+    struct largest_signed {
+        static constexpr size_t value = max((std::is_signed_v<T> ? sizeof(T) : 0)...);
+    };
+
+    /** Return the size of the largest signed type in a range of types. */
+    template <typename... T>
+    constexpr decltype(auto) largest_signed_v = largest_signed<T...>::value;
+
+    /** Store the size of the largest unsigned type in a range of types in `value`. */
+    template <typename... T>
+    struct largest_unsigned {
+        static constexpr size_t value = max((std::is_unsigned_v<T> ? sizeof(T) : 0)...);
+    };
+
+    /** Return the size of the largest signed type in a range of types. */
+    template <typename... T>
+    constexpr decltype(auto) largest_unsigned_v = largest_unsigned<T...>::value;
+
+    /** Store the size of the largest floating point type in a range of types in `value`. */
+    template <typename... T>
+    struct largest_float {
+        static constexpr size_t value = max((std::is_floating_point_v<T> ? sizeof(T) : 0)...);
+    };
+
+    /** Return the size of the largest floating point type in a range of types. */
+    template <typename... T>
+    constexpr decltype(auto) largest_float_v = largest_float<T...>::value;
+
     /** Select a type similar to `T`, but one size up. */
     template <typename T>
     class next_up {
@@ -160,4 +182,8 @@ namespace arithmetic_type_tools {
                                                                               unsigned_by_size_t<lu>,
                                                                               void>>>;
     };
+
+    /** fit_all_t is a std::common_type_t replacement that does combine signed and unsigned properly. */
+    template <typename... T>
+    using fit_all_t = typename fit_all<T...>::type;
 } // namespace arithmetic_type_tools
