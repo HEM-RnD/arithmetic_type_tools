@@ -1,3 +1,8 @@
+/**@file
+ * @brief C++ tools for arithmetic type fitting, selection and size-mapping in the form of a header-only library
+ * @author Stefan Hamminga <s@stefanhamminga.com>
+ */
+
 #pragma once
 
 #include <cstddef>
@@ -7,11 +12,8 @@
 #include <utility>
 #include <algorithm>
 
-
-#undef min
-#undef max
 namespace arithmetic_type_tools {
-    /**@{ Allow selecting types based on their size */
+    /**@{ Select an integral or floating point type by size */
     template <size_t S> struct signed_by_size { using type = void; };
     template <> struct signed_by_size<1> { using type = int8_t; };
     template <> struct signed_by_size<2> { using type = int16_t; };
@@ -23,6 +25,7 @@ namespace arithmetic_type_tools {
     #ifdef __SIZEOF_INT256__
         template <> struct signed_by_size<32> { using type = __int256_t; };
     #endif
+
     template <size_t S>
     using signed_by_size_t = typename signed_by_size<S>::type;
 
@@ -37,6 +40,7 @@ namespace arithmetic_type_tools {
     #ifdef __SIZEOF_INT256__
         template <> struct unsigned_by_size<32> { using type = __uint256_t; };
     #endif
+
     template <size_t S>
     using unsigned_by_size_t = typename unsigned_by_size<S>::type;
 
@@ -56,7 +60,7 @@ namespace arithmetic_type_tools {
     using float_by_size_t = typename float_by_size<S>::type;
     /** @} */
 
-    // Yes, the order isn't pretty, but it solves the chicken-egg issue caused by the broken `std::common_type`
+    // Yes, it's not pretty, but it solves the chicken-egg issue caused by the broken `std::common_type`
     /**
      * Variadic `min` implementation for safely mixing unsigned, signed and floating point arguments
      * @returns Lowest value of type `fit_all_t<T...>`
@@ -144,7 +148,7 @@ namespace arithmetic_type_tools {
     template <typename... T>
     constexpr decltype(auto) largest_float_v = largest_float<T...>::value;
 
-    /** Select a type similar to `T`, but one size up. */
+    /** Use `next_up<T>` to obtain a type that is similar to `T` but twice the size. */
     template <typename T>
     class next_up {
     private:
@@ -158,12 +162,17 @@ namespace arithmetic_type_tools {
                                                            unsigned_by_size_t<2 * sizeof(BT)>>>;
     };
 
-    /** Use `next_up_t<T>` to obtain a type that is similar but twice the size. */
+    /** Use `next_up_t<T>` to obtain a type that is similar to `T` but twice the size. */
     template <typename T>
     using next_up_t = typename next_up<T>::type;
 
 
-    /** fit_all is a std::common_type replacement that does combine signed and unsigned properly. */
+    /** `fit_all` is a `std::common_type` replacement that combines signed and unsigned properly.
+     *
+     *  Combining an unsigned type and signed type sized identical or smaller to a common type will result in an
+     *  unsigned type equal in size of the input unsigned, breaking any negative values. `fit_all` will instead return
+     *  a signed type that can hold all types.
+     */
     template <typename... T>
     class fit_all {
     private:
@@ -183,7 +192,12 @@ namespace arithmetic_type_tools {
                                                                               void>>>;
     };
 
-    /** fit_all_t is a std::common_type_t replacement that does combine signed and unsigned properly. */
+    /** `fit_all_t` is a `std::common_type_t` replacement that combines signed and unsigned properly.
+     *
+     *  Combining an unsigned type and signed type sized identical or smaller to a common type will result in an
+     *  unsigned type equal in size of the input unsigned, breaking any negative values. `fit_all_t` will instead return
+     *  a signed type that can hold all types.
+     */
     template <typename... T>
     using fit_all_t = typename fit_all<T...>::type;
 } // namespace arithmetic_type_tools
